@@ -302,10 +302,116 @@ void classicalWriter(int processId) {
 ```
 As you can see above the starvation problem has been taken care of and neither the readers nor the writers would starve. Thus, a starve-free approach to the Reader-Writer problem.
 
+## A faster Starve-Free Solution
+
+Since in the above solution, we saw that the reader process has to access and lock two semaphores everytime it enters the critical section. Thus, this might take significant time if acquiring semaphore locks takes significant time. Thus, we can have a faster starve-free approach compared to the one above.
+
+### Semaphores and Intialization
+Here, we try to include the `read_mutex` semaphore in the `entry_mutex` semaphore and in addition to it use another semaphore, the `out_mutex` semaphore. We use some additional variables as well, and we don't incur more cost for the same. Also, the accesses to these variables is controlled by the semaphores, thus taking care of synchronization. 
+
+```cpp
+// INITIALIZATION //
+
+int in_count = 0, out_count = 0;   
+//  here read_count = in_count - out_count 
+//  which represents total number of readers that are currently in the critical section
+
+bool writer_waiting = false;
+//  represents whether a writer is waiting for the critical section or not
+
+semaphore* rw_mutex = new semaphore(resources-1);
+//  this is initially set to resources - 1 
+//  as this would be required only if reader processes are in critical section
+//  after reader processes are done executing and writer process is waitingm then it is signalled to be free
+
+semaphore* entry_mutex = new semaphore(resources);  
+//  in addition to making starve-free it controls access to in_count variable
+
+semaphore* out_mutex = new semaphore(resources); // new semaphore that controls access to out_count
+
+```
+### Reader Implementation (Starve-Free Faster Algorithm)
+The following contains the code for the starve-free faster reader process.
+```cpp
+//  FASTER STARVE-FREE READER CODE
+void fasterReader(int processId) {
+    
+    wait(entry_mutex, processId);   //  this has same significance as in above 
+    ++in_count;
+    signal(entry_mutex);    //  in addition to it, it controls access to in_count
+
+        // ***** CRITICAL SECTION ***** //
+    
+    //  after the reader process has completed executing its critical section, it changes the out_count
+    //  if no further reader is present in the critical section (checked by in_count == out_count)
+    //  then if a writer is waiting for the critical section, it releases the rw_mutex semaphore
+    
+    wait(out_mutex, processId);
+    ++out_count;
+
+    if(writer_waiting == true && (in_count == out_count)){
+        signal(rw_mutex);
+    } 
+
+    signal(out_mutex);
+
+}
+
+```
+
+### Writer Implementation (Starve-Free Faster Algorithm)
+The code for the starve-free faster writer process.
+```cpp
+//  FASTER STARVE-FREE WRITER CODE
+void fasterWriter(int processId) {
+    
+    wait(entry_mutex, processId);   //  this has same significance as in above
+
+    wait(out_mutex, processId);     
+    //  this ensures that out_mutex is not being changed while it executes
+
+    if(in_count == out_count) {
+        // means no reader is currently executing in the critical section
+        // so it simply releases the out_mutex and enters the critical section
+
+        signal(out_mutex);  
+
+    }
+    else {
+        // means some reader process is in critical section
+
+        writer_waiting = true;  // the writer process would have to wait
+        signal(out_mutex);  // this was only to ensure sync of out_count 
+
+        wait(rw_mutex, processId);  
+        // now the writer process enters the blockedQueue of the rw_semaphore
+        // after acquiring it, the proces is now ready to enter the critical section
+
+        writer_waiting = false;
+    }
+
+        // ***** CRITICAL SECTION ***** //
+
+    signal(entry_mutex);
+    // before the writer process has exited the critical section, all other processes would have
+    // queued up in the blockedQueue of the entry mutex in order of their arrival
+
+}
+
+```
+
+#### ENTRY TO CRITICAL SECTION:
+Once a reader process acquires the `entry_mutex` semaphore, it enters the critical section after increasing the `in_count` and signalling the `entry_mutex`. If another reader comes up, same thing happens for it and it can enter the critical section while the previous one hasn't left. If a writer comes up, it gets queued in the `entry_mutex` first. After acquiring it, it gets the `out_mutex` and then the checking whether reader process is present or not is done by comparing the `in_count` and `out_count` which would be equal if the critical section is free. If reader proces is still present, it sets the `writer_waiting` to true and enters the `blockedQueue` of the `rw_mutex`. Once ready to enter the critical section, it resets the `writer_waiting` to false. If a writer comes directly, then `in_count` would be equal to `out_count`, thus it would simply acquire the semaphores and enter the critical section. Any other process coming up would be queued up in the `entry_mutex` as it releases it at last after completing its execution in the critical section.
+
+
+#### EXITING THE CRITICAL SECTION:
+For a reader process exiting the critical section, it would first increase the `out_count` after acquiriing the `out_mutex` semaphore and if it is not the last process (checked by comparing `in_count` and `out_count`) or no writer process is waiting in the queue of the `rw_mutex`, for critical section (checked by `writer_waiting` flag) then it would simply exit the critical section after signalling the `out_mutex`. In case it is the last reader process in the critical section and some writer process is waiting, it would first signal the `rw_mutex` semaphore making the writer process active and letting it enter the critical section. In case of a writer proces, it simply exits the critical section after releasing the `entry_mutex` semaphore making critical section avaialable to others in the queue.
+
+Here as any process that comes up is queued up in the `blockedQueue` of the `entry_mutex`, may it be a reader or a writer process. This takes care of the no-starve condition for the readers as well as writers. Also, in the implementation above, you can see that only one access to semaphore is required at the beginning of any reader process trying to enter the critical section. Thus it is faster.
 
 ## References
 
 1. *Operating System Concepts*, Ninth Edition, Silberschatz, Galvin, Gagne 
-2. [Cornell University Paper on Reader-Writer Problem](https://arxiv.org/abs/1309.4507)
+2. [Faster Fair Solution for the Reader-Writer Problem](https://arxiv.org/abs/1309.4507)
 
 
