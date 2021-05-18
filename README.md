@@ -2,7 +2,7 @@
 
 The Reader-Writer Problem is a classical problem in Computer Science in which a data structure like database, storage area, etc is being accessed simultaneously by multiple processes concurrently. The critcal section is such that it can be accessed by only one one writer at any point of time while multiple readers can simultaneously access the critical section. We use semaphores to achieve this such that there would be no conflicts while accessing by writers and readers and process synchronization is properly met. But, this may give rise to starvation of either the readers or the writers, depending on their priorities. I have described a solution to the Reader-Writer problem that is starve-free and tackles the problem efficiently.
 
-Firstly, I have decribed the classical solution followed by the starve-free solution to the same.
+Firstly, I have decribed the classical solution followed by the starve-free solution to the same. Finally, I have described an even faster starve-free solution, that speeds up the reader process' execution in the critical section.
 
 ## Data Structures Used : 
 
@@ -179,6 +179,10 @@ void classicalReader(int processId) {
 
 }
 
+do {
+    classicalReader(PID);   // calling the function iteratively when any reader process with id = PID arrives
+} while(true);
+
 ```
 ### Writer Implementation (Classical)
 The writer code that would be called every time a new writer arrives. 
@@ -196,6 +200,10 @@ void classicalWriter(int processId) {
 
     signal(rw_mutex);
 }
+
+do {
+    classicalWriter(PID);
+} while(true);
 
 ```
 As you can see the problem with the above implementation is that the writer's may starve while waiting for access to the critical section. This would happen if readers keep coming one after other, thus the writers would never get a chance to acquire the `rw_mutex`, thus being starved. This can be tackled by using another semaphore, which I call `entry_mutex`. The starve-free solution below describes how the issue can be solved. 
@@ -272,6 +280,10 @@ void starveFreeReader(int processId) {
 
 }
 
+do {
+    starveFreeReader(PID);
+} while(true);
+
 ```
 
 ### Writer Implementation (Starve-Free)
@@ -279,7 +291,7 @@ The following is the implementation of the reader code using the starve-free app
 
 ```cpp
 //  STARVE-FREE WRITER CODE
-void classicalWriter(int processId) {
+void starveFreeWriter(int processId) {
     
     wait(entry_mutex, processId);
     //  the writer also waits for the entry mutex first
@@ -299,6 +311,11 @@ void classicalWriter(int processId) {
 
     signal(rw_mutex);
 }
+
+do {
+    starveFreeWriter(PID);
+} while(true);
+
 ```
 As you can see above the starvation problem has been taken care of and neither the readers nor the writers would starve. Thus, a starve-free approach to the Reader-Writer problem.
 
@@ -312,6 +329,7 @@ Here, we try to include the `read_mutex` semaphore in the `entry_mutex` semaphor
 ```cpp
 // INITIALIZATION //
 
+int resources = 1;
 int in_count = 0, out_count = 0;   
 //  here read_count = in_count - out_count 
 //  which represents total number of readers that are currently in the critical section
@@ -357,6 +375,10 @@ void fasterReader(int processId) {
 
 }
 
+do {
+    fasterReader(PID);
+} while(true);
+
 ```
 
 ### Writer Implementation (Starve-Free Faster Algorithm)
@@ -398,16 +420,36 @@ void fasterWriter(int processId) {
 
 }
 
+do {
+    fasterWriter(PID);
+} while(true);
+
 ```
 
-#### ENTRY TO CRITICAL SECTION:
+#### Entering the Critical Section:
+
 Once a reader process acquires the `entry_mutex` semaphore, it enters the critical section after increasing the `in_count` and signalling the `entry_mutex`. If another reader comes up, same thing happens for it and it can enter the critical section while the previous one hasn't left. If a writer comes up, it gets queued in the `entry_mutex` first. After acquiring it, it gets the `out_mutex` and then the checking whether reader process is present or not is done by comparing the `in_count` and `out_count` which would be equal if the critical section is free. If reader proces is still present, it sets the `writer_waiting` to true and enters the `blockedQueue` of the `rw_mutex`. Once ready to enter the critical section, it resets the `writer_waiting` to false. If a writer comes directly, then `in_count` would be equal to `out_count`, thus it would simply acquire the semaphores and enter the critical section. Any other process coming up would be queued up in the `entry_mutex` as it releases it at last after completing its execution in the critical section.
 
 
-#### EXITING THE CRITICAL SECTION:
+#### Exiting the Critical Section:
+
 For a reader process exiting the critical section, it would first increase the `out_count` after acquiriing the `out_mutex` semaphore and if it is not the last process (checked by comparing `in_count` and `out_count`) or no writer process is waiting in the queue of the `rw_mutex`, for critical section (checked by `writer_waiting` flag) then it would simply exit the critical section after signalling the `out_mutex`. In case it is the last reader process in the critical section and some writer process is waiting, it would first signal the `rw_mutex` semaphore making the writer process active and letting it enter the critical section. In case of a writer proces, it simply exits the critical section after releasing the `entry_mutex` semaphore making critical section avaialable to others in the queue.
 
 Here as any process that comes up is queued up in the `blockedQueue` of the `entry_mutex`, may it be a reader or a writer process. This takes care of the no-starve condition for the readers as well as writers. Also, in the implementation above, you can see that only one access to semaphore is required at the beginning of any reader process trying to enter the critical section. Thus it is faster.
+
+## Correctness of the two Starve-Free Solutions
+For a solution to be starve-free, it must satisfy the three criteria-- *Mutual Exclusion, Progress* and *Bounded Waiting*. Let's verfiy the same for the two approaches above.
+
+### Mutual Exclusion
+At any point of time, only one writer process or multiple reader and no writer processes might be present in the critial section to ensure Mutual Exclusion. This is ensured by the `entry_mutex` semaphore which is not biased to the reader or the writer processes and treat them equally and entry is decided on a FCFS basis. Entry is given to a writer only when critical section is free and to readers additionally when other readers are present. Thus, mutual exclusion is satisfied.
+
+### Progress
+The structure of code is such that there is no chance that our system enters a deadlock. Also, the readers and writers take finite time with semaphores being released, every time processes are done with their execution in the critical section, giving chance for others to enter the critical section. Thus, the progress criterion is satisfied.
+
+### Bounded Waiting
+Originally if readers came one after another, writers would starve, but now due to the `entry_mutex` semaphore, all get queued up and are released one after the other. Same is the case of the readers, that get a chance to enter the crtical section in a group whenever they reach the front of the queue. Thus, neither reader nor writer processes have to wait indefinitely, satisfying the bounded waiting criteria.
+
+As we can see that all the three requirements have been properly met. We can say that the two solutions above are truly ***starve-free***.
 
 ## References
 
